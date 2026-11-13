@@ -507,6 +507,7 @@ export class MemoryOrchestrator {
 			options.executionCounter,
 			telemetry,
 			options.onSideCallUsage,
+			list.turnDelta(),
 		);
 		if (hasSuccessfulMemoryFlag(list)) {
 			this.scheduleEpisodicMemoryJob(
@@ -629,6 +630,7 @@ export class MemoryOrchestrator {
 				options.executionCounter,
 				telemetry,
 				options.onSideCallUsage,
+				list.turnDelta(),
 			);
 			if (!handle) return;
 			const result = await handle.done;
@@ -646,6 +648,7 @@ export class MemoryOrchestrator {
 			options.executionCounter,
 			telemetry,
 			options.onSideCallUsage,
+			list.turnDelta(),
 		);
 		if (!handle) return;
 		const entry: MidRunObserverTask = { handle };
@@ -726,6 +729,7 @@ export class MemoryOrchestrator {
 		executionCounter?: AgentExecutionCounter,
 		telemetry?: BuiltTelemetry,
 		onSideCallUsage?: OnSideCallUsage,
+		liveMessages?: readonly AgentDbMessage[],
 	): ScopedMemoryTaskHandle<RunObservationLogObserverResult> | undefined {
 		const run = this.observerRun;
 		if (run.disabled) return undefined;
@@ -737,6 +741,8 @@ export class MemoryOrchestrator {
 		const observerThresholdTokens = observationalMemory.observerThresholdTokens;
 		if (!observe || observerThresholdTokens === undefined) return undefined;
 
+		// Capture this run's content before the task queues; do not retain a mutable reference.
+		const liveMessagesSnapshot = liveMessages ? structuredClone(liveMessages) : undefined;
 		const scope = this.getObservationLogScope(persistence);
 		const runner = this.getMemoryTaskRunner(memory, observationalMemory.lockTtlMs);
 		const handle = runner.schedule<RunObservationLogObserverResult>(
@@ -748,6 +754,7 @@ export class MemoryOrchestrator {
 					...scope,
 					observationLogTailLimit: observationalMemory.observationLogTailLimit ?? 0,
 					observe,
+					liveMessages: liveMessagesSnapshot,
 					tokenCounter: this.tokenCounter,
 					executionCounter,
 					telemetry,
@@ -778,6 +785,7 @@ export class MemoryOrchestrator {
 		executionCounter?: AgentExecutionCounter,
 		telemetry?: BuiltTelemetry,
 		onSideCallUsage?: OnSideCallUsage,
+		liveMessages?: readonly AgentDbMessage[],
 	): Promise<void> {
 		const { memory, observationalMemory } = this.config;
 		if (!memory || !observationalMemory || !hasObservationLogStore(memory)) return;
@@ -797,7 +805,7 @@ export class MemoryOrchestrator {
 			void midRunTask.handle.done.then(() => {
 				if (this.midRunObserverTask === midRunTask) this.midRunObserverTask = undefined;
 			});
-			this.scheduleObserverTask(persistence, executionCounter, telemetry, onSideCallUsage);
+			this.scheduleObserverTask(persistence, executionCounter, telemetry, onSideCallUsage, liveMessages);
 		} else if (
 			this.cursorAdvancedThisRun ||
 			(midRunTask?.result !== undefined && didAdvanceCursor(midRunTask.result))
@@ -805,9 +813,9 @@ export class MemoryOrchestrator {
 			// Mid-run advanced the cursor this run — either activated at a boundary
 			// or settled after the last one: observe the tail regardless of the
 			// visible-window budget, which the mask shrank below threshold.
-			this.scheduleObserverTask(persistence, executionCounter, telemetry, onSideCallUsage);
+			this.scheduleObserverTask(persistence, executionCounter, telemetry, onSideCallUsage, liveMessages);
 		} else if (await this.shouldScheduleObserver(list, persistence.threadId)) {
-			this.scheduleObserverTask(persistence, executionCounter, telemetry, onSideCallUsage);
+			this.scheduleObserverTask(persistence, executionCounter, telemetry, onSideCallUsage, liveMessages);
 		}
 
 		const reflect = observationalMemory.reflect;

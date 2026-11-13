@@ -95,6 +95,8 @@ export interface RunObservationLogObserverOpts {
 	observationScopeId: string;
 	observationLogTailLimit: number;
 	observe: ObservationLogObserveFn;
+	/** Current-run messages only. Never persisted or used for cross-run replay. */
+	liveMessages?: readonly AgentDbMessage[];
 	tokenCounter?: TokenCounter;
 	now?: Date;
 	onMalformedLine?: (line: string) => void;
@@ -227,7 +229,7 @@ export async function runObservationLogObserver(
 		memory,
 		observationScopeId,
 	);
-	const deltaMessages = await memory.getMessagesForObservationScope(
+	const persistedDeltaMessages = await memory.getMessagesForObservationScope(
 		observationScopeId,
 		cursor
 			? {
@@ -238,6 +240,16 @@ export async function runObservationLogObserver(
 				}
 			: undefined,
 	);
+	// Persistence removes run-scoped references for safe future replay. The live
+	// observer must not mistake that storage representation for actual expiry.
+	// Keep persisted IDs/order/timestamps: only overlay content from this run.
+	const liveById = new Map(opts.liveMessages?.map((message) => [message.id, message]));
+	const deltaMessages = persistedDeltaMessages.map((message) => {
+		const live = liveById.get(message.id);
+		return live && isLlmMessage(message) && isLlmMessage(live)
+			? { ...message, content: live.content }
+			: message;
+	});
 	if (deltaMessages.length === 0) return { status: 'skipped', reason: 'no-delta' };
 
 	// A pending tool call (e.g. suspended for a HITL approval) has no outcome

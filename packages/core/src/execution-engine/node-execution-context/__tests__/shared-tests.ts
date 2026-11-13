@@ -257,6 +257,27 @@ export const describeCommonTests = (
 				messages: ['Testing', 1, 2, {}],
 			});
 		});
+
+		it('should handle null and undefined arguments without throwing', () => {
+			expect(() => context.sendMessageToUI(null, undefined, 'x', null)).not.toThrow();
+			expect(additionalData.sendDataToUI).toHaveBeenCalledWith('sendConsoleMessage', {
+				source: '[Node: "Test Node"]',
+				messages: ['null', 'undefined', 'x', 'null'],
+			});
+		});
+
+		it('should handle mixed null/undefined with valid date-like objects', () => {
+			const luxonLike = { isLuxonDateTime: true, ts: '2024-01-15T12:00:00Z', invalidReason: false };
+			expect(() =>
+				context.sendMessageToUI(null, luxonLike, undefined),
+			).not.toThrow();
+			const call = additionalData.sendDataToUI.mock.calls.find(
+				([event]) => event === 'sendConsoleMessage',
+			);
+			expect(call).toBeDefined();
+			expect(call[1].messages[0]).toBe('null');
+			expect(call[1].messages[2]).toBe('undefined');
+		});
 	});
 
 	describe('logAiEvent', () => {

@@ -18,6 +18,7 @@ import type { Response } from 'express';
 import { DirectedGraph, StorageConfig, WorkflowExecute } from 'n8n-core';
 import * as core from 'n8n-core';
 import {
+	type IDataObject,
 	type IExecuteData,
 	type IExecuteResponsePromiseData,
 	type INode,
@@ -1785,6 +1786,35 @@ describe('pre-persist context establishment', () => {
 
 		expect(establishSpy).not.toHaveBeenCalled();
 		expect(callOrder).toEqual(['activeExecutions.add']);
+	});
+
+	it('does not reset __dataChanged when staticData was already modified by the webhook trigger', async () => {
+		// Regression test for issue #42077: `establishContextForPersistence`
+		// must not pass staticData to the Workflow constructor, because that
+		// re-wraps the shared object in ObservableObject.create() which resets
+		// __dataChanged to false, causing the changed static data to never be
+		// persisted on subsequent webhook deliveries.
+		//
+		// In a real webhook execution the trigger modifies the object before
+		// the runner is invoked; `establishContextForPersistence` should not
+		// touch that flag.
+		const staticData: IDataObject & { __dataChanged?: boolean } = { remoteId: 'remote-1' };
+		Object.defineProperty(staticData, '__dataChanged', { value: true, writable: true });
+
+		const data = buildRunData(buildExecutionDataWithHeader());
+		data.workflowData.staticData = staticData;
+
+		// Make activeExecutions.add throw so we short-circuit before the
+		// full run and can inspect the staticData state.
+		addSpy.mockReset();
+		addSpy.mockRejectedValue(new Error('short-circuit'));
+		// Prevent the error path from calling establishContextForPersistence
+		// again (it won't because the throw is after context establishment).
+		vi.spyOn(runner, 'failExecution').mockResolvedValue();
+
+		await runner.run(data).catch(() => {});
+
+		expect(staticData.__dataChanged).toBe(true);
 	});
 
 	describe('when establishExecutionContext throws', () => {

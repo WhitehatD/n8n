@@ -257,6 +257,38 @@ export const describeCommonTests = (
 				messages: ['Testing', 1, 2, {}],
 			});
 		});
+
+		it('should handle null arguments without throwing', () => {
+			context.sendMessageToUI('x', null);
+			expect(additionalData.sendDataToUI).toHaveBeenCalledWith('sendConsoleMessage', {
+				source: '[Node: "Test Node"]',
+				messages: ['x', null],
+			});
+		});
+
+		it('should handle undefined arguments without throwing', () => {
+			context.sendMessageToUI('x', undefined);
+			expect(additionalData.sendDataToUI).toHaveBeenCalledWith('sendConsoleMessage', {
+				source: '[Node: "Test Node"]',
+				messages: ['x', undefined],
+			});
+		});
+
+		it('should handle console.log(null) without throwing', () => {
+			context.sendMessageToUI(null);
+			expect(additionalData.sendDataToUI).toHaveBeenCalledWith('sendConsoleMessage', {
+				source: '[Node: "Test Node"]',
+				messages: [null],
+			});
+		});
+
+		it('should handle console.log(undefined) without throwing', () => {
+			context.sendMessageToUI(undefined);
+			expect(additionalData.sendDataToUI).toHaveBeenCalledWith('sendConsoleMessage', {
+				source: '[Node: "Test Node"]',
+				messages: [undefined],
+			});
+		});
 	});
 
 	describe('logAiEvent', () => {

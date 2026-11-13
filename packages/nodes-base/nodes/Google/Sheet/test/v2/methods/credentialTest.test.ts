@@ -48,12 +48,34 @@ describe('googleApiCredentialTest', () => {
 		});
 	});
 
+	it('should strip delegatedEmail to test the private key without Domain-Wide Delegation', async () => {
+		vi.mocked(getGoogleAccessToken).mockResolvedValue({ access_token: 'a-token' });
+
+		const credWithDelegation = {
+			data: {
+				email: 'svc@project.iam.gserviceaccount.com',
+				privateKey: 'private-key',
+				delegatedEmail: 'user@domain.com',
+			},
+		} as unknown as ICredentialsDecrypted;
+
+		await googleApiCredentialTest.call(testFunctions, credWithDelegation);
+
+		expect(getGoogleAccessToken).toHaveBeenCalledWith(
+			{ email: 'svc@project.iam.gserviceaccount.com', privateKey: 'private-key', delegatedEmail: undefined },
+			'sheetV2',
+		);
+	});
+
 	it('should request the narrower sheetV2 service scope, not sheetV2Trigger', async () => {
 		vi.mocked(getGoogleAccessToken).mockResolvedValue({ access_token: 'a-token' });
 
 		await googleApiCredentialTest.call(testFunctions, credential);
 
-		expect(getGoogleAccessToken).toHaveBeenCalledWith(credential.data, 'sheetV2');
+		expect(getGoogleAccessToken).toHaveBeenCalledWith(
+			{ email: 'test@test.com', privateKey: 'private-key', delegatedEmail: undefined },
+			'sheetV2',
+		);
 		expect(getGoogleAccessToken).not.toHaveBeenCalledWith(expect.anything(), 'sheetV2Trigger');
 	});
 });

@@ -32,4 +32,35 @@ describe('getGoogleAccessToken', () => {
 		expect(signOptions.header).toEqual({ typ: 'JWT', alg: 'RS256' });
 		expect(signOptions.header).not.toHaveProperty('kid');
 	});
+
+	it('omits the sub claim when no delegatedEmail is provided', async () => {
+		const ctx = mock<IExecuteFunctions>();
+		ctx.helpers = { request: vi.fn().mockResolvedValue({ access_token: 'token' }) } as any;
+
+		const credentials: IDataObject = {
+			email: 'svc@project.iam.gserviceaccount.com',
+			privateKey: '-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----',
+		};
+
+		await getGoogleAccessToken.call(ctx, credentials, 'drive');
+
+		const payload = mockedSign.mock.calls[0][0] as Record<string, unknown>;
+		expect(payload).not.toHaveProperty('sub');
+	});
+
+	it('includes the sub claim when delegatedEmail is provided', async () => {
+		const ctx = mock<IExecuteFunctions>();
+		ctx.helpers = { request: vi.fn().mockResolvedValue({ access_token: 'token' }) } as any;
+
+		const credentials: IDataObject = {
+			email: 'svc@project.iam.gserviceaccount.com',
+			privateKey: '-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----',
+			delegatedEmail: 'user@example.com',
+		};
+
+		await getGoogleAccessToken.call(ctx, credentials, 'drive');
+
+		const payload = mockedSign.mock.calls[0][0] as Record<string, unknown>;
+		expect(payload.sub).toBe('user@example.com');
+	});
 });

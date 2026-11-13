@@ -144,6 +144,44 @@ describe('RabbitMQ GenericFunctions', () => {
 			expect(mockChannel.checkQueue).toHaveBeenCalledWith('queue');
 			expect(mockChannel.bindQueue).not.toHaveBeenCalled();
 		});
+
+		it('should await all queue bindings before resolving', async () => {
+			context.getCredentials.mockResolvedValue(credentials);
+			const bindings = [
+				{ exchange: 'exchange1', routingKey: 'key1' },
+				{ exchange: 'exchange2', routingKey: 'key2' },
+			];
+			const options = mock<TriggerOptions>({
+				assertQueue: true,
+				binding: { bindings },
+			});
+
+			// Make bindQueue slow so we can verify the promise doesn't resolve early
+			mockChannel.bindQueue.mockResolvedValue(undefined);
+
+			const promise = rabbitmqConnectQueue.call(context, 'queue', options);
+			await promise;
+
+			expect(mockChannel.bindQueue).toHaveBeenCalledTimes(2);
+			expect(mockChannel.bindQueue).toHaveBeenCalledWith('queue', 'exchange1', 'key1');
+			expect(mockChannel.bindQueue).toHaveBeenCalledWith('queue', 'exchange2', 'key2');
+		});
+
+		it('should throw when a queue binding fails', async () => {
+			context.getCredentials.mockResolvedValue(credentials);
+			const bindings = [{ exchange: 'exchange1', routingKey: 'key1' }];
+			const options = mock<TriggerOptions>({
+				assertQueue: true,
+				binding: { bindings },
+			});
+
+			const bindingError = new Error('bind failed');
+			mockChannel.bindQueue.mockRejectedValue(bindingError);
+
+			await expect(
+				rabbitmqConnectQueue.call(context, 'queue', options),
+			).rejects.toThrow('bind failed');
+		});
 	});
 
 	describe('rabbitmqConnectExchange', () => {

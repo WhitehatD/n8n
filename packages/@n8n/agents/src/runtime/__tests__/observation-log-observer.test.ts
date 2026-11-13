@@ -533,57 +533,143 @@ describe('renderObserverTranscript', () => {
 });
 
 describe('runObservationLogObserver', () => {
-	it.each(['document', 'media'] as const)(
-		'bounds oversized %s results before observation',
-		async (kind) => {
-			const store = new InMemoryMemory();
-			const document = `DOCUMENT_START ${'Document text. '.repeat(6_000)} DOCUMENT_END`;
-			const output =
-				kind === 'document'
-					? { content: document }
-					: {
-							type: 'content',
-							value: [{ type: 'file-url', url: document, mediaType: 'text/plain' }],
-						};
-			await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
-			await store.saveMessages({
-				threadId: 'thread-1',
-				resourceId: 'user-1',
-				messages: [
-					{
-						id: 'm1',
-						createdAt: new Date(0),
-						role: 'assistant',
-						content: [
-							{
-								type: 'tool-call',
-								toolCallId: 'tc1',
-								toolName: 'fetch_report',
-								providerExecuted: true,
-								input: {},
-								state: 'resolved',
-								output,
-							},
-						],
-					},
-				],
-			});
-
-			await runObservationLogObserver({
-				memory: store,
-				observationScopeId: 'thread-1',
-				observationLogTailLimit: 20,
-				tokenCounter: (text) => text.length,
-				observe: async ({ transcript }) => {
-					expect(transcript).toContain('"_truncated":true');
-					expect(transcript).toContain('DOCUMENT_START');
-					expect(transcript).toContain('DOCUMENT_END');
-					expect(transcript.length).toBeLessThan(MAX_MODEL_TOOL_RESULT_TOKENS + 1_000);
-					return 'NO_OBSERVATIONS';
+	it('bounds oversized document results before observation', async () => {
+		const store = new InMemoryMemory();
+		const document = `DOCUMENT_START ${'Document text. '.repeat(6_000)} DOCUMENT_END`;
+		const output = { content: document };
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [
+				{
+					id: 'm1',
+					createdAt: new Date(0),
+					role: 'assistant',
+					content: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tc1',
+							toolName: 'fetch_report',
+							providerExecuted: true,
+							input: {},
+							state: 'resolved',
+							output,
+						},
+					],
 				},
-			});
-		},
-	);
+			],
+		});
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: (text) => text.length,
+			observe: async ({ transcript }) => {
+				expect(transcript).toContain('"_truncated":true');
+				expect(transcript).toContain('DOCUMENT_START');
+				expect(transcript).toContain('DOCUMENT_END');
+				expect(transcript.length).toBeLessThan(MAX_MODEL_TOOL_RESULT_TOKENS + 1_000);
+				return 'NO_OBSERVATIONS';
+			},
+		});
+	});
+
+	it('bounds oversized content tool result text before observation', async () => {
+		const store = new InMemoryMemory();
+		const text = `CONTENT_START ${'Large text content. '.repeat(6_000)} CONTENT_END`;
+		const output = {
+			type: 'content',
+			value: [{ type: 'text', text }],
+		};
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [
+				{
+					id: 'm1',
+					createdAt: new Date(0),
+					role: 'assistant',
+					content: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tc1',
+							toolName: 'fetch_report',
+							providerExecuted: true,
+							input: {},
+							state: 'resolved',
+							output,
+						},
+					],
+				},
+			],
+		});
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: (text) => text.length,
+			observe: async ({ transcript }) => {
+				// The truncation envelope is embedded inside the content tool result's
+				// text part, so its JSON keys are escaped by the outer serialization.
+				expect(transcript).toContain('\\"_truncated\\":true');
+				expect(transcript).toContain('CONTENT_START');
+				expect(transcript).toContain('CONTENT_END');
+				expect(transcript.length).toBeLessThan(MAX_MODEL_TOOL_RESULT_TOKENS + 1_000);
+				return 'NO_OBSERVATIONS';
+			},
+		});
+	});
+
+	it('does not truncate file-url content parts at tool-result guard level', async () => {
+		const store = new InMemoryMemory();
+		const urlText = `URL_START ${'url-text. '.repeat(6_000)} URL_END`;
+		const output = {
+			type: 'content',
+			value: [{ type: 'file-url', url: urlText, mediaType: 'text/plain' }],
+		};
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [
+				{
+					id: 'm1',
+					createdAt: new Date(0),
+					role: 'assistant',
+					content: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tc1',
+							toolName: 'fetch_report',
+							providerExecuted: true,
+							input: {},
+							state: 'resolved',
+							output,
+						},
+					],
+				},
+			],
+		});
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: (text) => text.length,
+			observe: async ({ transcript }) => {
+				// file-url parts are references, not content dumps — they should
+				// not trigger truncation even when the URL is long.
+				expect(transcript).not.toContain('"_truncated":true');
+				expect(transcript).toContain('URL_START');
+				expect(transcript).toContain('URL_END');
+				return 'NO_OBSERVATIONS';
+			},
+		});
+	});
 
 	it('writes observations with indented detail lists and advances the cursor', async () => {
 		const store = new InMemoryMemory();

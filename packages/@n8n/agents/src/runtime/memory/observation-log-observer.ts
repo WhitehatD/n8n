@@ -383,9 +383,12 @@ async function guardObserverToolResults(
 	const content = await Promise.all(
 		message.content.map(async (block) => {
 			if (block.type !== 'tool-call' || block.state !== 'resolved') return block;
-			// Bound the serialized result so rich media metadata cannot bypass the guard.
-			const serialized = serializeForObserver(block.output, {}, true);
-			const guarded = await guardToolResultForModel(serialized, tokenCounter);
+			// Compact the output to strip rich media metadata, then pass the
+			// compacted object to the tool-result guard. This avoids a
+			// double-serialization that would add escaping overhead and push the
+			// result past the token limit, triggering an expensive truncation loop.
+			const compacted = compactForObserver(block.output, {}, true);
+			const guarded = await guardToolResultForModel(compacted, tokenCounter);
 			if (!guarded.truncated) return block;
 			return { ...block, output: guarded.historyOutput };
 		}),

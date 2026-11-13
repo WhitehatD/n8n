@@ -1254,3 +1254,185 @@ describe('runObservationLogObserver', () => {
 		expect(observations[0].text).not.toContain('xoxb-1234567890-abcdefghij');
 	});
 });
+
+describe('runObservationLogObserver with liveMessages', () => {
+	const OFFLOADED_RESULT = {
+		_offloaded: true,
+		path: 'tool-results/runs/abc/def.result.json',
+		originalCharCount: 250000,
+		requiredAction: {
+			toolName: 'workspace_read_tool_result',
+			input: { path: 'tool-results/runs/abc/def.result.json', view: 'describe' },
+		},
+	};
+
+	function makeLlmMessage(
+		id: string,
+		createdAt: Date,
+		output: object,
+	): AgentDbMessage {
+		return {
+			id,
+			createdAt,
+			role: 'assistant',
+			content: [
+				{
+					type: 'tool-call',
+					toolCallId: 'call-' + id,
+					toolName: 'synthetic_search',
+					input: {},
+					state: 'resolved',
+					output,
+				},
+			],
+		};
+	}
+
+	function makeSanitizedMessage(
+		id: string,
+		createdAt: Date,
+	): AgentDbMessage {
+		return makeLlmMessage(id, createdAt, {
+			_offloaded: true,
+			expired: true,
+			message: 'The stored tool result expired with its originating run.',
+		});
+	}
+
+	it('overlays live content over persisted sanitized messages during live run', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+
+		const createdAt = new Date(2026, 4, 12, 14, 30);
+		// Persist the sanitized version (as persistTurnDelta would write it)
+		const sanitized = makeSanitizedMessage('m1', createdAt);
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [sanitized],
+		});
+
+		// The live message still has the real offloaded envelope
+		const live = makeLlmMessage('m1', createdAt, { ...OFFLOADED_RESULT });
+
+		const observe = vi.fn(async ({ transcript }: ObservationLogObserverInput) => {
+			// Without the fix, the observer would see 'expired with its originating run'
+			// With the fix, it should see the offloaded path
+			expect(transcript).not.toContain('expired with its originating run');
+			expect(transcript).toContain(OFFLOADED_RESULT.path);
+			return await Promise.resolve('* IMPORTANT (14:30) Search completed.');
+		});
+
+		const result = await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: async (text: string) => text.length,
+			now: new Date(2026, 4, 12, 14, 31),
+			observe,
+			liveMessages: [live],
+		});
+
+		expect(result).toMatchObject({ status: 'ran', cursorAdvanced: true });
+	});
+
+	it('does not alter persisted storage when liveMessages are provided', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+
+		const createdAt = new Date(2026, 4, 12, 14, 30);
+		const sanitized = makeSanitizedMessage('m1', createdAt);
+		const sanitizedJson = JSON.stringify(sanitized);
+
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [sanitized],
+		});
+
+		const live = makeLlmMessage('m1', createdAt, { ...OFFLOADED_RESULT });
+		const observe = vi.fn(async () => await Promise.resolve('NO_OBSERVATIONS'));
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: async () => 10,
+			now: new Date(2026, 4, 12, 14, 31),
+			observe,
+			liveMessages: [live],
+		});
+
+		// The persisted sanitized message must remain unchanged
+		const persisted = await store.getMessagesForObservationScope('thread-1');
+		const persistedJson = JSON.stringify(persisted[0]);
+		expect(persistedJson).not.toContain(OFFLOADED_RESULT.path);
+		expect(persistedJson).toContain('expired with its originating run');
+		expect(persistedJson).toEqual(sanitizedJson);
+	});
+
+	it('falls through to expired marker when no live message matches', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+
+		const createdAt = new Date(2026, 4, 12, 14, 30);
+		const sanitized = makeSanitizedMessage('m1', createdAt);
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [sanitized],
+		});
+
+		// A live message with a different id should not overlay the sanitized one
+		const otherLive = makeLlmMessage('m2', createdAt, { ...OFFLOADED_RESULT });
+
+		const observe = vi.fn(async ({ transcript }: ObservationLogObserverInput) => {
+			expect(transcript).toContain('expired with its originating run');
+			expect(transcript).not.toContain(OFFLOADED_RESULT.path);
+			return await Promise.resolve('NO_OBSERVATIONS');
+		});
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: async () => 10,
+			now: new Date(2026, 4, 12, 14, 31),
+			observe,
+			liveMessages: [otherLive],
+		});
+	});
+
+	it('keeps the database keyset timestamps for cursor commits, not the live content', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+
+		const persistedAt = new Date(2026, 4, 12, 14, 30);
+		const liveAt = new Date(2030, 1, 1, 0, 0);
+		const sanitized = makeSanitizedMessage('m1', persistedAt);
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [sanitized],
+		});
+
+		const live = makeLlmMessage('m1', liveAt, { ...OFFLOADED_RESULT });
+
+		const observe = vi.fn(async () => await Promise.resolve('* INFO (14:31) Observed.'));
+		const result = await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: async () => 10,
+			now: new Date(2026, 4, 12, 14, 31),
+			observe,
+			liveMessages: [live],
+		});
+
+		expect(result).toMatchObject({ status: 'ran', cursorAdvanced: true });
+		const cursor = await store.getCursor('thread-1');
+		expect(cursor?.lastObservedAt.getTime()).toBe(persistedAt.getTime());
+		// The live createdAt should NOT be used for the cursor
+		expect(cursor?.lastObservedAt.getTime()).not.toBe(liveAt.getTime());
+	});
+});

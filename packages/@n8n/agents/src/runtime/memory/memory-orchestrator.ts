@@ -629,6 +629,7 @@ export class MemoryOrchestrator {
 				options.executionCounter,
 				telemetry,
 				options.onSideCallUsage,
+				list.turnDelta(),
 			);
 			if (!handle) return;
 			const result = await handle.done;
@@ -646,6 +647,7 @@ export class MemoryOrchestrator {
 			options.executionCounter,
 			telemetry,
 			options.onSideCallUsage,
+			list.turnDelta(),
 		);
 		if (!handle) return;
 		const entry: MidRunObserverTask = { handle };
@@ -726,6 +728,7 @@ export class MemoryOrchestrator {
 		executionCounter?: AgentExecutionCounter,
 		telemetry?: BuiltTelemetry,
 		onSideCallUsage?: OnSideCallUsage,
+		liveMessages?: readonly AgentDbMessage[],
 	): ScopedMemoryTaskHandle<RunObservationLogObserverResult> | undefined {
 		const run = this.observerRun;
 		if (run.disabled) return undefined;
@@ -738,6 +741,9 @@ export class MemoryOrchestrator {
 		if (!observe || observerThresholdTokens === undefined) return undefined;
 
 		const scope = this.getObservationLogScope(persistence);
+		// Capture this run's content before the task queues; do not retain a
+		// mutable list so a later mutation cannot change the queued observer's input.
+		const liveMessagesSnapshot = liveMessages ? structuredClone(liveMessages) : undefined;
 		const runner = this.getMemoryTaskRunner(memory, observationalMemory.lockTtlMs);
 		const handle = runner.schedule<RunObservationLogObserverResult>(
 			{ ...scope, taskKind: 'observer' },
@@ -748,6 +754,7 @@ export class MemoryOrchestrator {
 					...scope,
 					observationLogTailLimit: observationalMemory.observationLogTailLimit ?? 0,
 					observe,
+					liveMessages: liveMessagesSnapshot,
 					tokenCounter: this.tokenCounter,
 					executionCounter,
 					telemetry,

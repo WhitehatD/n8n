@@ -25,8 +25,17 @@ export function recordConsumedAuth(req: RequestWithHeaders, names: string[]): vo
 export function redactedHeaders(req: RequestWithHeaders): IncomingHttpHeaders {
 	const headers = { ...req.headers };
 
+	// Build a map of lowercase header names to original keys for case-insensitive lookup
+	const lowerMap = new Map<string, string>();
+	for (const key of Object.keys(headers)) {
+		lowerMap.set(key.toLowerCase(), key);
+	}
+
 	for (const name of readRecord(req)) {
-		if (name in headers) headers[name] = REDACTED;
+		const originalKey = lowerMap.get(name.toLowerCase());
+		if (originalKey) {
+			headers[originalKey] = REDACTED;
+		}
 	}
 
 	return headers;

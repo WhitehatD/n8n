@@ -550,12 +550,90 @@ export class ScalingService {
 
 	/**
 	 * Register listeners on a `worker` process for Bull queue events.
+	 *
+	 * Workers can enqueue and await child workflow jobs (e.g. from a native Agent
+	 * workflow tool). These listeners handle child job completion/failure events
+	 * so the caller worker does not have to wait for the periodic DB recheck.
 	 */
 	private registerWorkerListeners(queue: JobQueue) {
 		queue.on('global:progress', (jobId: JobId, msg: unknown) => {
 			if (!this.isJobMessage(msg)) return;
 
-			if (msg.kind === 'abort-job') this.jobProcessor.stopJob(jobId);
+			switch (msg.kind) {
+				case 'abort-job':
+					this.jobProcessor.stopJob(jobId);
+					break;
+				case 'job-finished':
+					/**
+					 * We track the result received via `job-finished` message,
+					 * because `removeOnComplete: true` prevents `job.finished()`
+					 * from returning a value that is no longer in Redis.
+					 *
+					 * A v1 message from an older worker carries no result, but it
+					 * still ends the wait for the job.
+					 */
+					this.jobOutcomeTracker.recordFinished(
+						queue.name,
+						jobId,
+						msg.executionId,
+						msg.version === 2
+							? {
+									success: msg.success,
+									error: msg.error,
+									status: msg.status,
+									lastNodeExecuted: msg.lastNodeExecuted,
+									usedDynamicCredentials: msg.usedDynamicCredentials,
+									metadata: msg.metadata,
+									...(msg.failedBeforeStart && { failedBeforeStart: true }),
+									startedAt: new Date(msg.startedAt),
+									stoppedAt: new Date(msg.stoppedAt),
+									// Dropping `waitTill` here makes the caller mistake a waiting execution
+									// for a finished one and delete it when the workflow does not
+									// save successful executions
+									waitTill: msg.waitTill ? new Date(msg.waitTill) : null,
+									nodeTimeSavedMinutes: msg.nodeTimeSavedMinutes,
+								}
+							: undefined,
+					);
+
+					this.logger.info(`Execution ${msg.executionId} (job ${jobId}) finished`, {
+						workerId: msg.workerId,
+						executionId: msg.executionId,
+						jobId,
+						success: msg.success,
+					});
+					break;
+				case 'job-failed':
+					this.logger.error(
+						[
+							`Execution ${msg.executionId} (job ${jobId}) failed`,
+							msg.errorStack ? `\n${msg.errorStack}\n` : '',
+						].join(''),
+						{
+							workerId: msg.workerId,
+							errorMsg: msg.errorMsg,
+							executionId: msg.executionId,
+							jobId,
+						},
+					);
+
+					// The worker already reported the underlying error, so this copy is only a handled signal
+					this.jobOutcomeTracker.recordFailed(
+						queue.name,
+						jobId,
+						msg.executionId,
+						new OperationalError(msg.errorMsg),
+					);
+					break;
+			}
+		});
+
+		// Failures such as a stall are reported only by Bull, not by the worker
+		queue.on('global:failed', (jobId: JobId, failedReason: string) => {
+			this.jobOutcomeTracker.settleByJobKey(queue.name, jobId, new OperationalError(failedReason));
+		});
+		queue.on('global:completed', (jobId: JobId) => {
+			this.jobOutcomeTracker.settleByJobKey(queue.name, jobId);
 		});
 
 		queue.on('error', (error: Error) => {

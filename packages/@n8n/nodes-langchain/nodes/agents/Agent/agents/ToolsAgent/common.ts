@@ -356,7 +356,7 @@ export function handleAgentFinishOutput(
 			const textOutputs = multiOutputSteps
 				.filter((output) => output.type === 'text' && output.text)
 				.map((output) => output.text)
-				.join('\n')
+				.join('')
 				.trim();
 
 			if (textOutputs) {

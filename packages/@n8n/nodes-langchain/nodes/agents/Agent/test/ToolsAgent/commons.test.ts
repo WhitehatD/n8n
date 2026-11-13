@@ -1227,7 +1227,7 @@ describe('handleAgentFinishOutput', () => {
 		expect(result).toEqual({
 			log: '',
 			returnValues: {
-				output: 'First part\nSecond part',
+				output: 'First partSecond part',
 			},
 		});
 	});

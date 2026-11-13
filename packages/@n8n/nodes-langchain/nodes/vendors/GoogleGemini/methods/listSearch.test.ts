@@ -79,10 +79,6 @@ describe('GoogleGemini -> listSearch', () => {
 						name: 'models/gemini-2.5-flash',
 						value: 'models/gemini-2.5-flash',
 					},
-					{
-						name: 'models/gemma-3-1b-it',
-						value: 'models/gemma-3-1b-it',
-					},
 				],
 			});
 		});
@@ -93,12 +89,7 @@ describe('GoogleGemini -> listSearch', () => {
 			const result = await modelSearch.call(mockExecuteFunctions, 'Gemma');
 
 			expect(result).toEqual({
-				results: [
-					{
-						name: 'models/gemma-3-1b-it',
-						value: 'models/gemma-3-1b-it',
-					},
-				],
+				results: [],
 			});
 		});
 
@@ -156,10 +147,6 @@ describe('GoogleGemini -> listSearch', () => {
 					{
 						name: 'models/gemini-2.5-flash-preview-native-audio-dialog',
 						value: 'models/gemini-2.5-flash-preview-native-audio-dialog',
-					},
-					{
-						name: 'models/gemma-3-1b-it',
-						value: 'models/gemma-3-1b-it',
 					},
 				],
 			});

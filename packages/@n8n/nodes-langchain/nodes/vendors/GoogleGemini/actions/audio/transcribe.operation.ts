@@ -1,5 +1,5 @@
 import type { IExecuteFunctions, INodeExecutionData, INodeProperties } from 'n8n-workflow';
-import { updateDisplayOptions } from 'n8n-workflow';
+import { NodeOperationError, updateDisplayOptions } from 'n8n-workflow';
 
 import type {
 	Content,
@@ -101,6 +101,12 @@ export const description = updateDisplayOptions(displayOptions, properties);
 
 export async function execute(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const model = this.getNodeParameter('modelId', i, '', { extractValue: true }) as string;
+	if (model.startsWith('models/gemma')) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`The model "${model}" is not supported. Gemma models cannot be used with the Google Gemini API. Please select a Gemini model.`,
+		);
+	}
 	const inputType = this.getNodeParameter('inputType', i, 'url') as string;
 	const simplify = this.getNodeParameter('simplify', i, true) as boolean;
 	const options = this.getNodeParameter('options', i, {});

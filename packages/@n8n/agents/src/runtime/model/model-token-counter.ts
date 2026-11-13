@@ -52,11 +52,20 @@ function findChunkEnd(text: string, start: number): number {
 	return keepSurrogatePairWhole(text, start + MAX_UNBROKEN_RUN_CHARS);
 }
 
+// BPE encoding time grows with long homogeneous runs of any character type, not
+// only non-whitespace. Track both whitespace and non-whitespace runs so that
+// mixed-whitespace input (spaces, tabs, newlines) is also bounded.
 function findLongRunStart(text: string, start: number, limit: number): number {
-	let runStart = start;
+	let nonWsRunStart = start;
+	let wsRunStart = start;
 	for (let index = start; index < limit; index++) {
-		if (/\s/.test(text[index])) runStart = index + 1;
-		else if (index + 1 - runStart >= MAX_UNBROKEN_RUN_CHARS) return runStart;
+		if (/\s/.test(text[index])) {
+			nonWsRunStart = index + 1;
+			if (index + 1 - wsRunStart >= MAX_UNBROKEN_RUN_CHARS) return wsRunStart;
+		} else {
+			wsRunStart = index + 1;
+			if (index + 1 - nonWsRunStart >= MAX_UNBROKEN_RUN_CHARS) return nonWsRunStart;
+		}
 	}
 	return -1;
 }

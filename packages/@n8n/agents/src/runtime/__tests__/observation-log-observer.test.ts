@@ -1125,6 +1125,73 @@ describe('runObservationLogObserver', () => {
 		},
 	);
 
+	it('does not double-serialise pre-serialised tool results before token counting', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		// A large object that is NOT a ContentToolResultOutput, so it goes
+		// through the non-content path in guardToolResultForModel.  When
+		// guardObserverToolResults calls serializeForObserver on it, the
+		// resulting JSON string is passed to guardToolResultForModel.  Before
+		// the fix, guardToolResultForModel would JSON.stringify that string a
+		// second time, inflating its length via escaped quotes.
+		const document = 'A. '.repeat(20_000);
+		const largeObject = { content: document };
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [
+				{
+					id: 'm1',
+					createdAt: new Date(0),
+					role: 'assistant',
+					content: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tc1',
+							toolName: 'fetch_report',
+							providerExecuted: true,
+							input: {},
+							state: 'resolved',
+							output: largeObject,
+						},
+					],
+				},
+			],
+		});
+
+		// Track calls to the token counter.  The first large call (from
+		// guardToolResultForModel) should be on the pre-serialised string
+		// directly, NOT on a re-stringified version of it.  A re-stringified
+		// version would be wrapped in quotes with inner quotes escaped,
+		// e.g. starting with '\"{' instead of '{'.
+		let firstLargeCallText: string | undefined;
+		const tokenCounter: (text: string) => number | Promise<number> = (text) => {
+			if (text.length > 10_000 && firstLargeCallText === undefined) {
+				firstLargeCallText = text;
+			}
+			return text.length;
+		};
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter,
+			observe: async ({ transcript }) => {
+				expect(transcript).toContain('_truncated');
+				expect(transcript).toContain('A.');
+				return 'NO_OBSERVATIONS';
+			},
+		});
+
+		// The first large call should be the serialized tool result directly,
+		// not a JSON.stringify'd version of it.  If it starts with a quote
+		// character, it's been double-wrapped.
+		expect(firstLargeCallText).toBeDefined();
+		// A proper single-escaped JSON string starts with '{', not '"{'
+		expect(firstLargeCallText![0]).toBe('{');
+	});
+
 	it('does not persist secret values echoed by the observer into observation entries', async () => {
 		const store = new InMemoryMemory();
 		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });

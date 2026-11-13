@@ -342,12 +342,41 @@ describe('VectorStoreWeaviate.node', () => {
 				autoLimit: 2,
 				alpha: 0.3,
 				vector: [0.1, 0.2],
-				filter: undefined,
+				filters: undefined,
 				queryProperties: ['title', 'body'],
 				maxVectorDistance: 0.4,
 				fusionType: 'Ranked',
 				returnMetadata: ['explainScore'],
 			});
+		});
+
+		it('should pass the node filter to hybrid search', async () => {
+			store.hybridSearch.mockResolvedValue([]);
+			const vectorStore = await getStore(hybridOptions, authorFilter);
+
+			await vectorStore.similaritySearchVectorWithScore([0.1, 0.2], 3);
+
+			expect(store.hybridSearch).toHaveBeenCalledWith(
+				'cats',
+				expect.objectContaining({
+					filters: parseCompositeFilter(authorFilter),
+				}),
+			);
+		});
+
+		it('should pass the search filter to hybrid search over the node filter', async () => {
+			store.hybridSearch.mockResolvedValue([]);
+			const searchFilter = { AND: [{ path: ['year'], operator: 'LessThan', valueNumber: 2000 }] };
+			const vectorStore = await getStore(hybridOptions, authorFilter);
+
+			await vectorStore.similaritySearchVectorWithScore([0.1, 0.2], 3, searchFilter);
+
+			expect(store.hybridSearch).toHaveBeenCalledWith(
+				'cats',
+				expect.objectContaining({
+					filters: parseCompositeFilter(searchFilter),
+				}),
+			);
 		});
 
 		it('should not ask for the score explanation when it is turned off', async () => {

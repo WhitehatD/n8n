@@ -384,7 +384,6 @@ export class WorkflowRunner {
 				connections: data.workflowData.connections,
 				active: data.workflowData.activeVersionId !== null,
 				nodeTypes: this.nodeTypes,
-				staticData: data.workflowData.staticData,
 				settings: data.workflowData.settings ?? {},
 			});
 			try {

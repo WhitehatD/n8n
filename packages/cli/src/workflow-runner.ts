@@ -384,7 +384,12 @@ export class WorkflowRunner {
 				connections: data.workflowData.connections,
 				active: data.workflowData.activeVersionId !== null,
 				nodeTypes: this.nodeTypes,
-				staticData: data.workflowData.staticData,
+				// Deliberately no staticData: the webhook trigger may have
+				// already modified it and set __dataChanged=true on the shared
+				// object; passing it here would re-wrap it in
+				// ObservableObject.create() and reset __dataChanged to false,
+				// causing the changed static data to never be persisted.
+				staticData: undefined,
 				settings: data.workflowData.settings ?? {},
 			});
 			try {

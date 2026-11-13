@@ -556,7 +556,9 @@ describe('CryptoV2 Node', () => {
 				);
 				const decryptResult = await cryptoNode.execute.call(mockExecuteFunctions);
 
-				expect(decryptResult[0][0].json.data).toBe(plaintext);
+				expect(decryptResult[0][0].json.data).toBe(
+					Buffer.from(plaintext).toString('base64'),
+				);
 			});
 
 			it('encrypts and decrypts RSA-OAEP with SHA-1 when selected', async () => {
@@ -581,7 +583,9 @@ describe('CryptoV2 Node', () => {
 					(name: string) => decryptParams[name],
 				);
 				const decryptResult = await cryptoNode.execute.call(mockExecuteFunctions);
-				expect(decryptResult[0][0].json.data).toBe(plaintext);
+				expect(decryptResult[0][0].json.data).toBe(
+					Buffer.from(plaintext).toString('base64'),
+				);
 
 				mockExecuteFunctions.getCredentials.mockResolvedValueOnce({
 					encryptionPublicKey: rsaPublicKey,

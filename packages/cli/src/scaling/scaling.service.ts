@@ -555,7 +555,48 @@ export class ScalingService {
 		queue.on('global:progress', (jobId: JobId, msg: unknown) => {
 			if (!this.isJobMessage(msg)) return;
 
-			if (msg.kind === 'abort-job') this.jobProcessor.stopJob(jobId);
+			switch (msg.kind) {
+				case 'abort-job':
+					this.jobProcessor.stopJob(jobId);
+					break;
+				case 'job-finished':
+					this.jobOutcomeTracker.recordFinished(
+						queue.name,
+						jobId,
+						msg.executionId,
+						msg.version === 2
+							? {
+									success: msg.success,
+									error: msg.error,
+									status: msg.status,
+									lastNodeExecuted: msg.lastNodeExecuted,
+									usedDynamicCredentials: msg.usedDynamicCredentials,
+									metadata: msg.metadata,
+									waitTill: msg.waitTill ? new Date(msg.waitTill) : null,
+									startedAt: new Date(msg.startedAt),
+									stoppedAt: new Date(msg.stoppedAt),
+									nodeTimeSavedMinutes: msg.nodeTimeSavedMinutes,
+								}
+							: undefined,
+					);
+					break;
+				case 'job-failed':
+					this.jobOutcomeTracker.recordFailed(
+						queue.name,
+						jobId,
+						msg.executionId,
+						new OperationalError(msg.errorMsg),
+					);
+					break;
+			}
+		});
+
+		// Bull fallback events for when the progress message was missed
+		queue.on('global:completed', (jobId: JobId) => {
+			this.jobOutcomeTracker.settleByJobKey(queue.name, jobId);
+		});
+		queue.on('global:failed', (jobId: JobId, failedReason: string) => {
+			this.jobOutcomeTracker.settleByJobKey(queue.name, jobId, new OperationalError(failedReason));
 		});
 
 		queue.on('error', (error: Error) => {

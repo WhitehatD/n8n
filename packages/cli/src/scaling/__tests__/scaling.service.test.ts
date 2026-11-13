@@ -1287,6 +1287,268 @@ describe('ScalingService', () => {
 		});
 	});
 
+	describe('job outcome wiring on workers', () => {
+		const getHandler = (event: string) =>
+			queue.on.mock.calls.find(([name]) => (name as string) === event)?.[1] as (
+				...args: unknown[]
+			) => void;
+
+		beforeEach(async () => {
+			// @ts-expect-error readonly property
+			instanceSettings.instanceType = 'worker';
+			await scalingService.setupQueue();
+		});
+
+		it('should record a v2 job-finished result via progress on a worker', () => {
+			getHandler('global:progress')('job-789', {
+				kind: 'job-finished',
+				version: 2,
+				executionId: 'exec-123',
+				workerId: 'worker-456',
+				success: true,
+				status: 'success',
+				startedAt: '2026-07-25T11:59:00.000Z',
+				stoppedAt: '2026-07-25T11:59:30.000Z',
+			});
+
+			expect(jobOutcomeTracker.recordFinished).toHaveBeenCalledWith(
+				'jobs',
+				'job-789',
+				'exec-123',
+				expect.objectContaining({
+					success: true,
+					status: 'success',
+					startedAt: new Date('2026-07-25T11:59:00.000Z'),
+					stoppedAt: new Date('2026-07-25T11:59:30.000Z'),
+				}),
+			);
+		});
+
+		it('should record a v1 job-finished message without a result on a worker', () => {
+			getHandler('global:progress')('job-789', {
+				kind: 'job-finished',
+				executionId: 'exec-123',
+				workerId: 'worker-456',
+				success: true,
+			});
+
+			expect(jobOutcomeTracker.recordFinished).toHaveBeenCalledWith(
+				'jobs',
+				'job-789',
+				'exec-123',
+				undefined,
+			);
+		});
+
+		it('should record a job-failed report on a worker', () => {
+			getHandler('global:progress')('job-789', {
+				kind: 'job-failed',
+				executionId: 'exec-123',
+				workerId: 'worker-456',
+				errorMsg: 'worker error',
+				errorStack: '',
+			});
+
+			expect(jobOutcomeTracker.recordFailed).toHaveBeenCalledWith(
+				'jobs',
+				'job-789',
+				'exec-123',
+				expect.any(OperationalError),
+			);
+			expect(jobOutcomeTracker.recordFailed.mock.calls[0][3].message).toBe('worker error');
+		});
+
+		it('should settle the wait for a job Bull reports as completed on a worker', () => {
+			getHandler('global:completed')('job-1');
+
+			expect(jobOutcomeTracker.settleByJobKey).toHaveBeenCalledWith('jobs', 'job-1');
+		});
+
+		it('should reject the wait for a job Bull reports as failed on a worker', () => {
+			getHandler('global:failed')('job-1', 'job stalled');
+
+			expect(jobOutcomeTracker.settleByJobKey).toHaveBeenCalledWith(
+				'jobs',
+				'job-1',
+				expect.any(OperationalError),
+			);
+		});
+
+		it('should end the wait for a worker-enqueued child job via progress', async () => {
+			const ae = mock<ActiveExecutions>();
+			ae.has.mockReturnValue(true);
+			const realTracker = new JobOutcomeTracker(mockLogger(), ae, mock(), mock());
+			const service = new ScalingService(
+				logger,
+				errorReporter,
+				ae,
+				jobProcessor,
+				globalConfig,
+				executionRepository,
+				executionPersistence,
+				instanceSettings,
+				mock(),
+				webhookResponseRelay,
+				executionCrashService,
+				realTracker,
+			);
+			await service.setupQueue();
+			const onProgress = queue.on.mock.calls
+				.filter(([event]) => (event as string) === 'global:progress')
+				.at(-1)?.[1] as (jobId: JobId, msg: unknown) => void;
+
+			const job = mock<Job>({
+				id: 'job-1',
+				data: { executionId: 'exec-1' },
+				queue: { name: 'jobs' },
+			});
+			const wait = service.waitForJob(job);
+
+			onProgress('job-1', {
+				kind: 'job-finished',
+				version: 2,
+				executionId: 'exec-1',
+				workerId: 'worker-1',
+				success: true,
+				status: 'success',
+				startedAt: '2026-07-25T11:59:00.000Z',
+				stoppedAt: '2026-07-25T11:59:30.000Z',
+			});
+
+			await expect(wait).resolves.toBeUndefined();
+		});
+
+		it('should reject the wait for a worker-enqueued child job that failed', async () => {
+			const ae = mock<ActiveExecutions>();
+			ae.has.mockReturnValue(true);
+			const realTracker = new JobOutcomeTracker(mockLogger(), ae, mock(), mock());
+			const service = new ScalingService(
+				logger,
+				errorReporter,
+				ae,
+				jobProcessor,
+				globalConfig,
+				executionRepository,
+				executionPersistence,
+				instanceSettings,
+				mock(),
+				webhookResponseRelay,
+				executionCrashService,
+				realTracker,
+			);
+			await service.setupQueue();
+			const onProgress = queue.on.mock.calls
+				.filter(([event]) => (event as string) === 'global:progress')
+				.at(-1)?.[1] as (jobId: JobId, msg: unknown) => void;
+
+			const job = mock<Job>({
+				id: 'job-1',
+				data: { executionId: 'exec-1' },
+				queue: { name: 'jobs' },
+			});
+			const wait = service.waitForJob(job);
+
+			onProgress('job-1', {
+				kind: 'job-failed',
+				executionId: 'exec-1',
+				workerId: 'worker-1',
+				errorMsg: 'child failed',
+				errorStack: '',
+			});
+
+			await expect(wait).rejects.toThrow('child failed');
+		});
+
+		it('should recover a job completion via Bull completed event fallback on a worker', async () => {
+			const realTracker = new JobOutcomeTracker(mockLogger(), activeExecutions, mock(), mock());
+			const service = new ScalingService(
+				logger,
+				errorReporter,
+				activeExecutions,
+				jobProcessor,
+				globalConfig,
+				executionRepository,
+				executionPersistence,
+				instanceSettings,
+				mock(),
+				webhookResponseRelay,
+				executionCrashService,
+				realTracker,
+			);
+			await service.setupQueue();
+			const onCompleted = queue.on.mock.calls
+				.filter(([event]) => (event as string) === 'global:completed')
+				.at(-1)?.[1] as (jobId: JobId) => void;
+
+			const job = mock<Job>({
+				id: 'job-1',
+				data: { executionId: 'exec-1' },
+				queue: { name: 'jobs' },
+			});
+			const wait = service.waitForJob(job);
+
+			onCompleted('job-1');
+
+			await expect(wait).resolves.toBeUndefined();
+		});
+
+		it('should ignore progress for another job while waiting for a child', async () => {
+			const ae = mock<ActiveExecutions>();
+			ae.has.mockReturnValue(true);
+			const realTracker = new JobOutcomeTracker(mockLogger(), ae, mock(), mock());
+			const service = new ScalingService(
+				logger,
+				errorReporter,
+				ae,
+				jobProcessor,
+				globalConfig,
+				executionRepository,
+				executionPersistence,
+				instanceSettings,
+				mock(),
+				webhookResponseRelay,
+				executionCrashService,
+				realTracker,
+			);
+			await service.setupQueue();
+			const onProgress = queue.on.mock.calls
+				.filter(([event]) => (event as string) === 'global:progress')
+				.at(-1)?.[1] as (jobId: JobId, msg: unknown) => void;
+
+			const job = mock<Job>({
+				id: 'job-1',
+				data: { executionId: 'exec-1' },
+				queue: { name: 'jobs' },
+			});
+			const wait = service.waitForJob(job);
+
+			// Finishing a different job must not settle this wait
+			onProgress('job-99', {
+				kind: 'job-finished',
+				version: 2,
+				executionId: 'exec-99',
+				workerId: 'worker-1',
+				success: true,
+				status: 'success',
+				startedAt: '2026-07-25T11:59:00.000Z',
+				stoppedAt: '2026-07-25T11:59:30.000Z',
+			});
+
+			// The right job finishes now
+			onProgress('job-1', {
+				kind: 'job-finished',
+				version: 2,
+				executionId: 'exec-1',
+				workerId: 'worker-1',
+				success: true,
+				status: 'success',
+				startedAt: '2026-07-25T11:59:00.000Z',
+				stoppedAt: '2026-07-25T11:59:30.000Z',
+			});
+			await expect(wait).resolves.toBeUndefined();
+		});
+	});
+
 	describe('getDiagnosticCounts', () => {
 		it('should report stored job results, queue listeners, and running jobs', async () => {
 			const activeExecutions = mock<ActiveExecutions>();

@@ -25,9 +25,16 @@ export function recordConsumedAuth(req: RequestWithHeaders, names: string[]): vo
 export function redactedHeaders(req: RequestWithHeaders): IncomingHttpHeaders {
 	const headers = { ...req.headers };
 
+	const headerKeys = Object.keys(headers).map((k) => k.toLowerCase());
+	const headerEntries = Object.entries(headers);
+
 	for (const name of readRecord(req)) {
-		if (name in headers) headers[name] = REDACTED;
+		const lowerName = name.toLowerCase();
+		const idx = headerKeys.indexOf(lowerName);
+		if (idx !== -1) {
+			headerEntries[idx][1] = REDACTED;
+		}
 	}
 
-	return headers;
+	return Object.fromEntries(headerEntries);
 }

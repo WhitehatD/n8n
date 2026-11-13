@@ -19,6 +19,7 @@ import { DirectedGraph, StorageConfig, WorkflowExecute } from 'n8n-core';
 import * as core from 'n8n-core';
 import {
 	type IExecuteData,
+	type IDataObject,
 	type IExecuteResponsePromiseData,
 	type INode,
 	type IRun,
@@ -740,6 +741,51 @@ describe('processError', () => {
 			hooks,
 		);
 		expect(watcher.workflowExecuteAfter).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('establishContextForPersistence', () => {
+	it('does not reset the __dataChanged flag on previously-modified staticData', async () => {
+		//
+		// Regression test for #42077: the webhook trigger's webhook() method
+		// writes to node static data via getWorkflowStaticData().  That sets
+		// __dataChanged = true on the workflow's staticData object via the
+		// ObservableObject proxy.
+		// establishContextForPersistence must NOT re-wrap staticData in a
+		// second ObservableObject.create() because that re-defines
+		// __dataChanged = false and causes the write to be silently lost.
+		//
+		const staticData: IDataObject = { existingKey: 'existing' };
+		const data = mock<IWorkflowExecutionDataProcess>({
+			executionMode: 'webhook',
+			workflowData: {
+				id: 'test-workflow',
+				name: 'Test',
+				nodes: [],
+				connections: {},
+				activeVersionId: null,
+				staticData,
+				settings: {},
+			},
+			executionData: createRunExecutionData({
+				executionData: { nodeExecutionStack: [] },
+			}),
+		});
+
+		// Simulate what a webhook trigger's webhook() does:
+		// getWorkflowStaticData returns a child ("node:NodeName" key in
+		// staticData), and writing to that child sets __dataChanged = true
+		// on the parent via the ObservableObject proxy.
+		// Since staticData is not yet an observable here, directly set the
+		// flag to the value it would have after the webhook's write.
+		(data.workflowData.staticData as IDataObject).__dataChanged = true;
+
+		// Now run establishContextForPersistence — before the fix this would
+		// re-wrap staticData and reset __dataChanged to false.
+		await runner.establishContextForPersistence(data);
+
+		// After the call the change flag must still be true
+		expect(data.workflowData.staticData.__dataChanged).toBe(true);
 	});
 });
 

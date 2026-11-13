@@ -27,6 +27,22 @@ describe('createModelTokenCounter', () => {
 		expect(Math.abs(count - 2503) / 2503).toBeLessThan(0.01);
 	});
 
+	it('does not block the event loop on long mixed-whitespace text', async () => {
+		// Alternating spaces and tabs should also yield; previously the whitespace
+		// bypassed the long-run safeguard and could block for 12+ seconds.
+		const text = ' \t'.repeat(4_000); // 8,000 characters
+		const countTokens = createModelTokenCounter('openai/gpt-5');
+		await countTokens('warm up');
+		let yielded = false;
+		setImmediate(() => {
+			yielded = true;
+		});
+
+		await countTokens(text);
+
+		expect(yielded).toBe(true);
+	});
+
 	it('yields to the event loop while counting a large text', async () => {
 		const words = ['alpha', 'beta,', 'gamma\n', '"delta"', '{epsilon:', '42}', 'ζήτα'];
 		// Counting must take well over the yield interval, so the text is large.

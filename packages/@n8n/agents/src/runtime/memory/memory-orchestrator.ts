@@ -70,7 +70,8 @@ function stringifyForBudget(value: unknown): string {
 	}
 }
 
-function serializeMessageForBudget(message: AgentDbMessage): string {
+/** @internal exported only for testing */
+export function serializeMessageForBudget(message: AgentDbMessage): string {
 	if (!('role' in message) || !Array.isArray(message.content)) return '';
 	const parts: string[] = [];
 	// File bytes are not text tokens, so count only the text around them.
@@ -80,7 +81,7 @@ function serializeMessageForBudget(message: AgentDbMessage): string {
 		} else if (content.type === 'tool-call') {
 			parts.push(content.toolName, stringifyForBudget(content.input));
 			if (content.state === 'resolved') parts.push(stringifyForBudget(content.output));
-			else if (content.state === 'rejected') parts.push(content.error);
+			else if (content.state === 'rejected') parts.push(stringifyForBudget(content.error));
 		}
 	}
 	return parts.join('\n');

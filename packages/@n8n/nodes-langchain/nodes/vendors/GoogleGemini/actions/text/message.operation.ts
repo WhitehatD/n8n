@@ -364,6 +364,12 @@ function getToolCalls(response: GenerateContentResponse) {
 
 export async function execute(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const model = this.getNodeParameter('modelId', i, '', { extractValue: true }) as string;
+	if (model.startsWith('models/gemma')) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`The model "${model}" is not supported. Gemma models cannot be used with the Google Gemini API. Please select a Gemini model.`,
+		);
+	}
 	const messages = this.getNodeParameter('messages.values', i, []) as Array<{
 		content: string;
 		role: string;

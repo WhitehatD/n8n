@@ -16,6 +16,12 @@ export async function baseAnalyze(
 	fallbackMimeType: string,
 ): Promise<INodeExecutionData[]> {
 	const model = this.getNodeParameter('modelId', i, '', { extractValue: true }) as string;
+	if (model.startsWith('models/gemma')) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`The model "${model}" is not supported. Gemma models cannot be used with the Google Gemini API. Please select a Gemini model.`,
+		);
+	}
 	const inputType = this.getNodeParameter('inputType', i, 'url') as string;
 	const text = this.getNodeParameter('text', i, '') as string;
 	if (!text.trim()) {

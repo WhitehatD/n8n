@@ -51,6 +51,7 @@ export async function modelSearch(
 		this,
 		(model) =>
 			!isImageModel(model) &&
+			!model.startsWith('models/gemma') &&
 			!model.includes('embedding') &&
 			!model.includes('aqa') &&
 			!model.includes('vision') &&
@@ -69,6 +70,7 @@ export async function audioModelSearch(
 		this,
 		(model) =>
 			!isImageModel(model) &&
+			!model.startsWith('models/gemma') &&
 			!model.includes('embedding') &&
 			!model.includes('aqa') &&
 			!model.includes('vision') &&

@@ -94,11 +94,11 @@ export async function getGoogleAccessToken(
 	const signature = jwt.sign(
 		{
 			iss: credentials.email,
-			sub: credentials.delegatedEmail || credentials.email,
 			scope: scopes.join(' '),
 			aud: 'https://oauth2.googleapis.com/token',
 			iat: now,
 			exp: now + 3600,
+			...(credentials.delegatedEmail ? { sub: credentials.delegatedEmail } : {}),
 		},
 		privateKey,
 		{

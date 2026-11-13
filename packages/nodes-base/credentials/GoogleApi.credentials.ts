@@ -137,11 +137,11 @@ export class GoogleApi implements ICredentialType {
 		const signature = jwt.sign(
 			{
 				iss: credentials.email,
-				sub: credentials.delegatedEmail || credentials.email,
 				scope: scopes,
 				aud: 'https://oauth2.googleapis.com/token',
 				iat: now,
 				exp: now + 3600,
+				...(credentials.delegatedEmail ? { sub: credentials.delegatedEmail } : {}),
 			},
 			privateKey,
 			{

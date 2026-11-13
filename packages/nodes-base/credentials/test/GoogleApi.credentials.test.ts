@@ -111,5 +111,23 @@ describe('GoogleApi Credential', () => {
 			expect(signOptions.header).toEqual({ typ: 'JWT', alg: 'RS256' });
 			expect(signOptions.header).not.toHaveProperty('kid');
 		});
+
+		it('omits the sub claim when no delegatedEmail is provided', async () => {
+			await credential.authenticate(baseCredentials, requestOptions);
+
+			const payload = mockedSign.mock.calls[0][0] as Record<string, unknown>;
+			expect(payload).not.toHaveProperty('sub');
+		});
+
+		it('includes the sub claim when delegatedEmail is provided', async () => {
+			const credsWithImpersonation = {
+				...baseCredentials,
+				delegatedEmail: 'user@example.com',
+			};
+			await credential.authenticate(credsWithImpersonation, requestOptions);
+
+			const payload = mockedSign.mock.calls[0][0] as Record<string, unknown>;
+			expect(payload.sub).toBe('user@example.com');
+		});
 	});
 });

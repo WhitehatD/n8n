@@ -405,6 +405,127 @@ describe('ScalingService', () => {
 		});
 	});
 
+	describe('registerWorkerListeners', () => {
+		beforeEach(() => {
+			// @ts-expect-error readonly property
+			instanceSettings.instanceType = 'worker';
+			vi.clearAllMocks();
+		});
+
+		const findHandler = (event: string) =>
+			queue.on.mock.calls.find(([name]) => (name as string) === event)?.[1] as
+				| ((...args: unknown[]) => void)
+				| undefined;
+
+		it('should call jobOutcomeTracker.recordFinished on job-finished progress message', async () => {
+			await scalingService.setupQueue();
+
+			const handler = findHandler('global:progress');
+			expect(handler).toBeDefined();
+
+			handler('42', {
+				kind: 'job-finished',
+				version: 2,
+				executionId: 'exec-1',
+				workerId: 'worker-1',
+				success: true,
+				status: 'success',
+				startedAt: '2026-11-09T00:00:00.000Z',
+				stoppedAt: '2026-11-09T00:00:00.020Z',
+				waitTill: null,
+				lastNodeExecuted: 'Return result',
+			});
+
+			expect(jobOutcomeTracker.recordFinished).toHaveBeenCalledWith(
+				'jobs',
+				'42',
+				'exec-1',
+				expect.objectContaining({ success: true, status: 'success' }),
+			);
+		});
+
+		it('should call jobOutcomeTracker.recordFailed on job-failed progress message', async () => {
+			await scalingService.setupQueue();
+
+			const handler = findHandler('global:progress');
+			expect(handler).toBeDefined();
+
+			handler('42', {
+				kind: 'job-failed',
+				executionId: 'exec-1',
+				workerId: 'worker-1',
+				errorMsg: 'child failed',
+				errorStack: '',
+			});
+
+			expect(jobOutcomeTracker.recordFailed).toHaveBeenCalledWith(
+				'jobs',
+				'42',
+				'exec-1',
+				expect.any(OperationalError),
+			);
+		});
+
+		it('should call jobOutcomeTracker.settleByJobKey on global:completed', async () => {
+			await scalingService.setupQueue();
+
+			const handler = findHandler('global:completed');
+			expect(handler).toBeDefined();
+
+			handler('42');
+
+			expect(jobOutcomeTracker.settleByJobKey).toHaveBeenCalledWith('jobs', '42');
+		});
+
+		it('should call jobOutcomeTracker.settleByJobKey on global:failed', async () => {
+			await scalingService.setupQueue();
+
+			const handler = findHandler('global:failed');
+			expect(handler).toBeDefined();
+
+			handler('42', 'something went wrong');
+
+			expect(jobOutcomeTracker.settleByJobKey).toHaveBeenCalledWith(
+				'jobs',
+				'42',
+				expect.any(OperationalError),
+			);
+		});
+
+		it('should still handle abort-job messages', async () => {
+			await scalingService.setupQueue();
+
+			const handler = findHandler('global:progress');
+			expect(handler).toBeDefined();
+
+			handler('42', { kind: 'abort-job' });
+
+			expect(jobProcessor.stopJob).toHaveBeenCalledWith('42');
+		});
+
+		it('should ignore unrelated progress message kinds (send-chunk, respond-to-webhook, mcp-response)', async () => {
+			await scalingService.setupQueue();
+
+			const handler = findHandler('global:progress');
+			expect(handler).toBeDefined();
+
+			handler('1', { kind: 'send-chunk', executionId: 'e1', chunkText: {}, workerId: 'w1' });
+			handler('2', { kind: 'respond-to-webhook', executionId: 'e2', response: {}, workerId: 'w1' });
+			handler('3', {
+				kind: 'mcp-response',
+				executionId: 'e3',
+				mcpType: 'service',
+				sessionId: 's1',
+				messageId: 'm1',
+				response: {},
+				workerId: 'w1',
+			});
+
+			expect(jobOutcomeTracker.recordFinished).not.toHaveBeenCalled();
+			expect(jobOutcomeTracker.recordFailed).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('stop', () => {
 		describe('if main', () => {
 			it('should pause queue, stop queue recovery and queue metrics', async () => {

@@ -98,7 +98,7 @@ describe('Google Gemini message model identity', () => {
 		]);
 	});
 
-	it('should reject a different model in a tool follow-up response', async () => {
+	it('should reject a different model in a tool follow-up response and use role "function"', async () => {
 		executeFunctionsMock.helpers.httpRequestWithAuthentication
 			.mockResolvedValueOnce({
 				...response,
@@ -116,6 +116,18 @@ describe('Google Gemini message model identity', () => {
 
 		await expect(execute.call(executeFunctionsMock, 0)).rejects.toThrow(NodeOperationError);
 		expect(executeFunctionsMock.helpers.httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
+		// Verify the second API call uses role 'function' for the tool response
+		expect(executeFunctionsMock.helpers.httpRequestWithAuthentication).toHaveBeenNthCalledWith(
+			2,
+			'googlePalmApi',
+			expect.objectContaining({
+				body: expect.objectContaining({
+					contents: expect.arrayContaining([
+						expect.objectContaining({ role: 'function' }),
+					]),
+				}),
+			}),
+		);
 		expect(executeFunctionsMock.setMetadata).toHaveBeenCalledTimes(2);
 		expect(executeFunctionsMock.setMetadata).toHaveBeenNthCalledWith(1, {
 			tokenUsage: { inputTokens: 20, outputTokens: 3 },

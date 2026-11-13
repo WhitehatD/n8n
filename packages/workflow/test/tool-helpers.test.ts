@@ -94,6 +94,28 @@ describe('nodeNameToToolName', () => {
 			expect(result.length).toBeLessThanOrEqual(64);
 			expect(result).not.toMatch(/[-_]$/);
 		});
+
+		it('should not return empty string when first 64 chars are all hyphens', () => {
+			const name = '-'.repeat(64) + 'Suffix';
+			expect(nodeNameToToolName(name)).not.toBe('');
+			expect(nodeNameToToolName(name).length).toBeGreaterThan(0);
+			expect(nodeNameToToolName(name).length).toBeLessThanOrEqual(64);
+		});
+
+		it('should not return empty string when first 64 chars are all underscores', () => {
+			const name = '_'.repeat(64) + 'Suffix';
+			expect(nodeNameToToolName(name)).not.toBe('');
+			expect(nodeNameToToolName(name).length).toBeGreaterThan(0);
+			expect(nodeNameToToolName(name).length).toBeLessThanOrEqual(64);
+		});
+
+		it('should preserve at least one character when entire truncated portion is separators', () => {
+			const name = '-'.repeat(100);
+			const result = nodeNameToToolName(name);
+			expect(result).not.toBe('');
+			expect(result.length).toBeGreaterThan(0);
+			expect(result.length).toBeLessThanOrEqual(64);
+		});
 	});
 
 	describe('when passed a string directly', () => {

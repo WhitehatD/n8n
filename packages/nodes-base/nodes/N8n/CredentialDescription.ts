@@ -22,7 +22,7 @@ export const credentialOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'POST',
-						url: '/credentials',
+						url: 'credentials',
 					},
 				},
 			},
@@ -33,7 +33,7 @@ export const credentialOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'DELETE',
-						url: '=/credentials/{{ toPathSegment($parameter.credentialId) }}',
+						url: '=credentials/{{ toPathSegment($parameter.credentialId) }}',
 					},
 				},
 			},
@@ -44,7 +44,7 @@ export const credentialOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'GET',
-						url: '=/credentials/schema/{{ toPathSegment($parameter.credentialTypeName) }}',
+						url: '=credentials/schema/{{ toPathSegment($parameter.credentialTypeName) }}',
 					},
 				},
 			},

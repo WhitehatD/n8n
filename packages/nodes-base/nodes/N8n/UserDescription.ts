@@ -50,7 +50,7 @@ export const userOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'GET',
-						url: '=/users/{{ toPathSegment($parameter.userId) }}',
+						url: '=users/{{ toPathSegment($parameter.userId) }}',
 						qs: {
 							includeRole: '={{ $parameter.includeRole }}',
 						},

@@ -42,8 +42,8 @@ export class N8nApi implements ICredentialType {
 
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: '={{ $credentials.baseUrl }}',
-			url: '/credentials/schema/n8nApi',
+			baseURL: '={{ $credentials.baseUrl.replace(/\/?$/, "/") }}',
+			url: 'credentials/schema/n8nApi',
 		},
 		rules: [
 			// A Base URL without `/api/v1` reaches the editor UI, which answers with HTML and a 200

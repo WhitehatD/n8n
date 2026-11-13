@@ -39,7 +39,7 @@ export const projectOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'POST',
-						url: '=/projects/{{ toPathSegment($parameter.projectId) }}/users',
+						url: '=projects/{{ toPathSegment($parameter.projectId) }}/users',
 					},
 					send: {
 						preSend: [prepareAddUserToProjectBody],

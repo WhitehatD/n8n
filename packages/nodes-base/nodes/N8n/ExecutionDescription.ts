@@ -23,7 +23,7 @@ export const executionOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'GET',
-						url: '=/executions/{{ toPathSegment($parameter.executionId) }}',
+						url: '=executions/{{ toPathSegment($parameter.executionId) }}',
 					},
 				},
 			},
@@ -34,7 +34,7 @@ export const executionOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'GET',
-						url: '/executions',
+						url: 'executions',
 					},
 					send: {
 						paginate: true,
@@ -51,7 +51,7 @@ export const executionOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'DELETE',
-						url: '=/executions/{{ toPathSegment($parameter.executionId) }}',
+						url: '=executions/{{ toPathSegment($parameter.executionId) }}',
 					},
 				},
 			},

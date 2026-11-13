@@ -371,6 +371,29 @@ export class VectorStoreWeaviate extends createVectorStoreNode<ExtendedWeaviateV
 			validFilter,
 		);
 	},
+	beforeInsert: async (context, embeddings, itemIndex) => {
+		const collectionName = context.getNodeParameter('weaviateCollection', itemIndex, '', {
+			extractValue: true,
+		}) as string;
+
+		const options = context.getNodeParameter('options', itemIndex, {}) as {
+			tenant?: string;
+			clearStore?: boolean;
+		};
+
+		if (!options.clearStore) return;
+
+		const credentials = await context.getCredentials('weaviateApi');
+
+		const client = await createWeaviateClient(credentials as WeaviateCredential);
+
+		if (!options.tenant) {
+			await client.collections.delete(collectionName);
+		} else {
+			const collection = client.collections.get(collectionName);
+			await collection.tenants.remove([{ name: options.tenant }]);
+		}
+	},
 	async populateVectorStore(context, embeddings, documents, itemIndex) {
 		const collectionName = context.getNodeParameter('weaviateCollection', itemIndex, '', {
 			extractValue: true,
@@ -379,7 +402,6 @@ export class VectorStoreWeaviate extends createVectorStoreNode<ExtendedWeaviateV
 		const options = context.getNodeParameter('options', itemIndex, {}) as {
 			tenant?: string;
 			textKey?: string;
-			clearStore?: boolean;
 			metadataKeys?: string;
 		};
 
@@ -396,15 +418,6 @@ export class VectorStoreWeaviate extends createVectorStoreNode<ExtendedWeaviateV
 			textKey: options.textKey ? options.textKey : 'text',
 			metadataKeys: metadataKeys as string[] | undefined,
 		};
-
-		if (options.clearStore) {
-			if (!options.tenant) {
-				await client.collections.delete(collectionName);
-			} else {
-				const collection = client.collections.get(collectionName);
-				await collection.tenants.remove([{ name: options.tenant }]);
-			}
-		}
 
 		await WeaviateStore.fromDocuments(documents, embeddings, config);
 	},

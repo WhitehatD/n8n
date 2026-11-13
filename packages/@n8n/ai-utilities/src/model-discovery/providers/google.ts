@@ -12,7 +12,9 @@ import type { ListModelsFn } from '../types';
  * by name as well: they return output a chat chain cannot use, and the method
  * check alone does not hold for a proxied list — Gateway credits report
  * `generateContent` for every model they serve, embeddings included. Nano
- * Banana models are image models without `image` in the id.
+ * Banana models are image models without `image` in the id. Gemma models
+ * are also dropped because Google's Gemini API silently routes them to
+ * paid Gemini models for billing, causing unexpected charges.
  */
 export function shouldIncludeGoogleModel(model: {
 	name: string;
@@ -25,7 +27,8 @@ export function shouldIncludeGoogleModel(model: {
 		!model.name.includes('image') &&
 		!model.name.includes('nano-banana') &&
 		!model.name.includes('tts') &&
-		!model.name.includes('embedding')
+		!model.name.includes('embedding') &&
+		!model.name.includes('gemma')
 	);
 }
 

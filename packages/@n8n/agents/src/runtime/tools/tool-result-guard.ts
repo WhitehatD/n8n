@@ -67,7 +67,11 @@ export async function guardToolResultForModel(
 	}
 
 	const historyOutput = toJsonValue(output);
-	const serialized = JSON.stringify(historyOutput);
+	// When output is already a string (e.g. pre-serialised by the observer),
+	// use it directly for token counting instead of re-stringifying through
+	// JSON.stringify.  Re-stringifying a JSON string adds escape characters
+	// that inflate the token count and add expensive synchronous tokenizer work.
+	const serialized = typeof output === 'string' ? output : JSON.stringify(historyOutput);
 
 	if (isClearlyWithinTokenLimit(serialized)) {
 		return { historyOutput, wireOutput: output, truncated: false, offloaded: false };

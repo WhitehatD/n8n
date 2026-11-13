@@ -1253,4 +1253,212 @@ describe('runObservationLogObserver', () => {
 		expect(observations[0].text).toContain('[REDACTED]');
 		expect(observations[0].text).not.toContain('xoxb-1234567890-abcdefghij');
 	});
+
+	it('overlays live content over persisted expired tool results in the observer transcript', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		const offloadedPath = 'tool-results/runs/abc123/result.json';
+		const liveResult = {
+			_offloaded: true,
+			path: offloadedPath,
+			originalCharCount: 250000,
+			requiredAction: {
+				toolName: 'workspace_read_tool_result',
+				input: { path: offloadedPath, view: 'describe' },
+			},
+		};
+		// Persisted message — sanitizeOffloadedToolResultsForMemory replaced the
+		// envelope with the expired marker.
+		const persistedMessage: AgentDbMessage = {
+			id: 'm1',
+			createdAt: new Date(0),
+			role: 'assistant',
+			content: [
+				{
+					type: 'tool-call',
+					toolCallId: 'tc1',
+					toolName: 'search',
+					input: {},
+					state: 'resolved',
+					output: { _offloaded: true, expired: true, message: 'expired' },
+				},
+			],
+		};
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [persistedMessage],
+		});
+
+		// The live copy still has the real result reference.
+		const liveMessage: AgentDbMessage = {
+			...persistedMessage,
+			content: [
+				{
+					type: 'tool-call',
+					toolCallId: 'tc1',
+					toolName: 'search',
+					input: {},
+					state: 'resolved',
+					output: liveResult,
+				},
+			],
+		};
+
+		const observe = vi.fn(async (input: ObservationLogObserverInput) => {
+			// The transcript must contain the real path, not the expired marker.
+			expect(input.transcript).toContain(offloadedPath);
+			expect(input.transcript).not.toContain('expired with its originating run');
+			return '* CRITICAL (14:31) Live result confirmed.';
+		});
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: () => 10,
+			observe,
+			liveMessages: [liveMessage],
+		});
+
+		expect(observe).toHaveBeenCalledTimes(1);
+		// The persisted message in the store must not be mutated by the overlay.
+		const [stored] = await store.getMessages('thread-1', {
+			limit: 1,
+		});
+		expect(stored).toMatchObject({
+			id: 'm1',
+			content: [
+				{
+					type: 'tool-call',
+					output: { _offloaded: true, expired: true, message: 'expired' },
+				},
+			],
+		});
+	});
+
+	it('overlays live text-envelope content and keeps expired marker for unmatched messages', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		const offloadedPath = 'tool-results/runs/abc456/result.json';
+		// Persisted: text block containing the expired JSON.
+		const persistedText: AgentDbMessage = {
+			id: 'm1',
+			createdAt: new Date(0),
+			role: 'assistant',
+			content: [
+				{
+					type: 'text',
+					text: JSON.stringify({
+						_offloaded: true,
+						expired: true,
+						message: 'The stored tool result expired with its originating run.',
+					}),
+				},
+			],
+		};
+		// Persisted: unmatched message that should stay expired.
+		const unmatchedExpired: AgentDbMessage = {
+			id: 'm2',
+			createdAt: new Date(1),
+			role: 'assistant',
+			content: [
+				{
+					type: 'tool-call',
+					toolCallId: 'tc2',
+					toolName: 'search',
+					input: {},
+					state: 'resolved',
+					output: { _offloaded: true, expired: true, message: 'expired' },
+				},
+			],
+		};
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [persistedText, unmatchedExpired],
+		});
+
+		// Live copy with the real envelope serialized as text.
+		const liveText: AgentDbMessage = {
+			...persistedText,
+			content: [
+				{
+					type: 'text',
+					text: JSON.stringify({
+						_offloaded: true,
+						path: offloadedPath,
+						originalCharCount: 1000,
+						requiredAction: {
+							toolName: 'workspace_read_tool_result',
+							input: { path: offloadedPath, view: 'describe' },
+						},
+					}),
+				},
+			],
+		};
+
+		const observe = vi.fn(async (input: ObservationLogObserverInput) => {
+			expect(input.transcript).toContain(offloadedPath);
+			expect(input.transcript).not.toContain('expired with its originating run');
+			expect(input.deltaMessages).toHaveLength(2);
+			expect(input.deltaMessages[0].id).toBe('m1');
+			expect(input.deltaMessages[1].id).toBe('m2');
+			return '* CRITICAL (14:31) Live result confirmed.';
+		});
+
+		await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: () => 10,
+			observe,
+			liveMessages: [liveText],
+		});
+
+		// The unmatched persisted message (m2) stays expired in the input.
+		expect(observe.mock.calls[0][0].deltaMessages[1].content[0]).toMatchObject({
+			type: 'tool-call',
+			output: { _offloaded: true, expired: true },
+		});
+	});
+
+	it('uses persisted timestamp, not live timestamp, for cursor advancement', async () => {
+		const store = new InMemoryMemory();
+		await store.saveThread({ id: 'thread-1', resourceId: 'user-1' });
+		const persistedCreatedAt = new Date('2025-01-01T00:00:00Z');
+		const liveCreatedAt = new Date('2030-01-01T00:00:00Z');
+		const persistedMessage: AgentDbMessage = {
+			id: 'm1',
+			createdAt: persistedCreatedAt,
+			role: 'assistant',
+			content: [{ type: 'text', text: 'Hello' }],
+		};
+		const liveMessage: AgentDbMessage = {
+			...persistedMessage,
+			createdAt: liveCreatedAt,
+			content: [{ type: 'text', text: 'Live content' }],
+		};
+		await store.saveMessages({
+			threadId: 'thread-1',
+			resourceId: 'user-1',
+			messages: [persistedMessage],
+		});
+
+		const result = await runObservationLogObserver({
+			memory: store,
+			observationScopeId: 'thread-1',
+			observationLogTailLimit: 20,
+			tokenCounter: () => 10,
+			now: new Date('2026-06-01T00:00:00Z'),
+			observe: async () => await Promise.resolve('* CRITICAL (14:31) Observed.'),
+			liveMessages: [liveMessage],
+		});
+
+		expect(result).toMatchObject({ status: 'ran', cursorAdvanced: true });
+		const cursor = await store.getCursor('thread-1');
+		expect(cursor).not.toBeNull();
+		// Cursor timestamp must be the persisted message's createdAt, not the live copy's.
+		expect(cursor!.lastObservedAt.getTime()).toBe(persistedCreatedAt.getTime());
+	});
 });

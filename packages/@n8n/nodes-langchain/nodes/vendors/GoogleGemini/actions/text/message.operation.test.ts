@@ -124,4 +124,40 @@ describe('Google Gemini message model identity', () => {
 			tokenUsage: { inputTokens: 30, outputTokens: 8 },
 		});
 	});
+
+	it('should use role "user" for function response content during tool calls', async () => {
+		executeFunctionsMock.helpers.httpRequestWithAuthentication
+			.mockResolvedValueOnce({
+				...response,
+				usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 3 },
+				candidates: [
+					{
+						content: {
+							parts: [{ functionCall: { name: 'lookup', args: {} } }],
+							role: 'model',
+						},
+					},
+				],
+			})
+			.mockResolvedValueOnce({ ...response });
+
+		const result = await execute.call(executeFunctionsMock, 0);
+
+		// The first API call sends the original user message
+		// The second API call should include:
+		//   1. the model's function call response (role: 'model')
+		//   2. the function response (role: 'user', not 'tool')
+		const secondCallArg =
+			executeFunctionsMock.helpers.httpRequestWithAuthentication.mock.calls[1][1];
+		const contents = secondCallArg.body.contents;
+		expect(contents).toHaveLength(3);
+		expect(contents[0]).toEqual({ role: 'user', parts: [{ text: 'Hello, world!' }] });
+		expect(contents[1]).toEqual({
+			role: 'model',
+			parts: [{ functionCall: { name: 'lookup', args: {} } }],
+		});
+		expect(contents[2].role).toBe('user');
+		expect(contents[2].parts[0]).toHaveProperty('functionResponse');
+		expect(result).toEqual([{ json: response.candidates[0], pairedItem: { item: 0 } }]);
+	});
 });

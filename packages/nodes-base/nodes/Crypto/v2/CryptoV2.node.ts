@@ -820,7 +820,7 @@ export class CryptoV2 implements INodeType {
 								},
 								Buffer.from(value, 'base64'),
 							);
-							newValue = decrypted.toString('utf8');
+							newValue = decrypted.toString('base64');
 						}
 					} catch (error) {
 						if (error instanceof NodeOperationError) throw error;

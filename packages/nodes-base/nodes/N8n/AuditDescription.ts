@@ -21,7 +21,7 @@ export const auditOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'POST',
-						url: '/audit',
+						url: 'audit',
 					},
 				},
 			},

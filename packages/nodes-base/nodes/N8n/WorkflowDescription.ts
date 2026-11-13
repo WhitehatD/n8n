@@ -33,7 +33,7 @@ export const workflowOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'POST',
-						url: '/workflows',
+						url: 'workflows',
 					},
 				},
 			},
@@ -59,7 +59,7 @@ export const workflowOperations: INodeProperties[] = [
 				routing: {
 					request: {
 						method: 'GET',
-						url: '/workflows',
+						url: 'workflows',
 					},
 					send: {
 						paginate: true,
@@ -99,7 +99,7 @@ const activateOperation: INodeProperties[] = [
 		routing: {
 			request: {
 				method: 'POST',
-				url: '=/workflows/{{ toPathSegment($value) }}/activate',
+				url: '=workflows/{{ toPathSegment($value) }}/activate',
 			},
 		},
 	},
@@ -203,7 +203,7 @@ const deactivateOperation: INodeProperties[] = [
 		routing: {
 			request: {
 				method: 'POST',
-				url: '=/workflows/{{ toPathSegment($value) }}/deactivate',
+				url: '=workflows/{{ toPathSegment($value) }}/deactivate',
 			},
 		},
 	},
@@ -222,7 +222,7 @@ const deleteOperation: INodeProperties[] = [
 		routing: {
 			request: {
 				method: 'DELETE',
-				url: '=/workflows/{{ toPathSegment($value) }}',
+				url: '=workflows/{{ toPathSegment($value) }}',
 			},
 		},
 	},
@@ -365,7 +365,7 @@ const getOperation: INodeProperties[] = [
 		routing: {
 			request: {
 				method: 'GET',
-				url: '=/workflows/{{ toPathSegment($value) }}',
+				url: '=workflows/{{ toPathSegment($value) }}',
 			},
 		},
 	},
@@ -384,7 +384,7 @@ const getVersionOperation: INodeProperties[] = [
 		routing: {
 			request: {
 				method: 'GET',
-				url: '=/workflows/{{ toPathSegment($value) }}/{{ toPathSegment($parameter["versionId"]) }}',
+				url: '=workflows/{{ toPathSegment($value) }}/{{ toPathSegment($parameter["versionId"]) }}',
 			},
 		},
 	},
@@ -417,7 +417,7 @@ const updateOperation: INodeProperties[] = [
 		routing: {
 			request: {
 				method: 'PUT',
-				url: '=/workflows/{{ toPathSegment($value) }}',
+				url: '=workflows/{{ toPathSegment($value) }}',
 			},
 		},
 	},
